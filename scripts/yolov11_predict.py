@@ -5,6 +5,8 @@ import cv2
 import re
 from ultralytics import YOLO
 from pathlib import Path
+import numpy as np
+from sort import Sort
 
 def convert_video_to_mp4(input_path, output_path):
     """
@@ -31,6 +33,72 @@ def convert_video_to_mp4(input_path, output_path):
     out.release()
     os.remove(input_path)  
 
+
+def get_bounding_boxes(frame, model, object_class, bbox_txt=None, frame_id=None):
+    results = model(frame)
+    dets_to_sort = np.empty((0, 6))  # Prepare an empty array for SORT
+    class_names = model.names  # Get class names from the model
+    bounding_boxes = [] # Reset data bounding box setiap frame baru
+
+    for result in results:
+        data = result.boxes.xywhn.cpu().numpy().tolist()
+        bounding_boxes.extend(data)
+
+        boxes = result.boxes.data.cpu().numpy()  # Convert to numpy array
+        for r in boxes:
+            x1, y1, x2, y2, score, class_id = r
+            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+            class_id = int(class_id)
+
+            if class_id in object_class and score > 0.25:
+                dets_to_sort = np.vstack((dets_to_sort, np.array([x1, y1, x2, y2, score, class_id])))
+
+    return dets_to_sort, bounding_boxes
+
+
+def process_and_track(model, frame, sort_tracker, frame_id, object_class=[0, 1, 2]):
+    global im0
+    im0 = frame.copy()  # Salin frame agar bisa digambar garisnya
+
+    dets_to_sort, bounding_boxes = get_bounding_boxes(frame, model, object_class)
+
+    if dets_to_sort.shape[0] == 0:
+        dets_to_sort = np.empty((0, 6), dtype=np.float32)
+
+    tracked_dets = sort_tracker.update(dets_to_sort)
+    class_names = model.names
+    updated_dets = []
+
+    for i, track in enumerate(sort_tracker.trackers):
+        if getattr(track, 'time_since_update', 1) > 1:
+            continue  # Lewati track yang tidak aktif
+
+        track_id = getattr(track, 'id', -1)
+        detclass = getattr(track, 'detclass', -1)
+        score = getattr(track, 'lastscore', 0.0)
+
+        if len(track.bbox_history) == 0:
+            continue
+
+        bbox = track.bbox_history[-1][:4]
+        x1, y1, x2, y2 = map(int, bbox)
+        class_name = class_names.get(detclass, "Unknown")
+
+        # Gambar garis track yang tetap tampil meskipun objek berpindah posisi
+        if hasattr(track, 'centroidarr') and len(track.centroidarr) > 1:
+            for j in range(len(track.centroidarr) - 1):
+                pt1 = (int(track.centroidarr[j][0]), int(track.centroidarr[j][1]))
+                pt2 = (int(track.centroidarr[j + 1][0]), int(track.centroidarr[j + 1][1]))
+                color = (0, 255, 0)
+                cv2.line(im0, pt1, pt2, color, 2)
+
+        # Gambar bounding box dan teks label
+        cv2.rectangle(im0, (x1, y1), (x2, y2), (255, 0, 0), 3)
+        cv2.putText(im0, f"ID {track_id} {class_name}", (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+    return im0
+
 def main(file_path):
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,66 +121,91 @@ def main(file_path):
         save_dir_img = Path(script_dir).parent / "storage/app/public/images/"
         save_name = "track"
         save_name_images = "detect"
-        detected_video_path = None
 
         if is_video:
-            trackpoints = []
-            last_prediction = None
-            results = model.track(file_path, save=True, project=str(save_dir), name=save_name, stream=True)
+            sort_tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.3)
+            cap = cv2.VideoCapture(file_path)
+            if not cap.isOpened():
+                print(json.dumps({"error": "Gagal membuka video input"}))
+                return
+
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+
+            # Membuat folder iterasi track, track2, track3, ...
+            i = 1
+            while True:
+                suffix = f"{save_name}{i}" if i > 1 else save_name
+                result_folder = save_dir / suffix
+                if not result_folder.exists():
+                    result_folder.mkdir(parents=True)
+                    break
+                i += 1
+
+            final_output_path = result_folder / "tracked_output.mp4"
+            out = cv2.VideoWriter(str(final_output_path), cv2.VideoWriter_fourcc(*'avc1'), fps, (width, height))
 
             frame_id = 0
-            for result in results:
-                boxes = result.boxes
-                if boxes is not None and boxes.id is not None and len(boxes.id) > 0:
-                    trackpoints.append(frame_id)
+            trackpoints = []
+            last_prediction = None
 
-                    last_box_idx = -1
-                    try:
-                        label_id = int(boxes.cls[last_box_idx].item())
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                im_tracked = process_and_track(model, frame, sort_tracker, frame_id)
+                out.write(im_tracked)
+
+                trackpoints.append(frame_id)
+
+                # Ambil prediksi dari frame ini
+                results = model(frame)
+                for result in results:
+                    if result.boxes is not None and len(result.boxes) > 0:
+                        last_box = result.boxes[-1]
+                        label_id = int(last_box.cls.item())
                         label_name = model.names[label_id]
-                        confidence = round(boxes.conf[last_box_idx].item(), 4)
+                        confidence = round(last_box.conf.item(), 4)
                         last_prediction = {
                             "label": label_name,
                             "confidence": confidence
                         }
-                    except Exception as e:
-                        print(f"Gagal mengambil data deteksi terakhir: {e}")
+
                 frame_id += 1
 
-            saved_folders = sorted(save_dir.glob(f"{save_name}*"), key=os.path.getmtime, reverse=True)
-            result_folder = saved_folders[0] if saved_folders else save_dir / save_name
+            cap.release()
+            out.release()
 
-            video_files = list(result_folder.glob("*.*"))
-            detected_video_path = video_files[0] if video_files else None
-
+            # Konversi output akhir jika belum MP4
+            detected_video_path = final_output_path
             if detected_video_path and detected_video_path.exists():
-                final_output_path = result_folder / (detected_video_path.stem + ".mp4")
+                converted_output_path = result_folder / (detected_video_path.stem + ".mp4")
                 if detected_video_path.suffix.lower() != ".mp4":
-                    convert_video_to_mp4(str(detected_video_path), str(final_output_path))
+                    convert_video_to_mp4(str(detected_video_path), str(converted_output_path))
+                    final_output_path = converted_output_path
                 else:
                     final_output_path = detected_video_path
 
-                relative_save_path = f"videos/{result_folder.name}/{final_output_path.name}"
-                predictions = [last_prediction] if last_prediction else []
+            relative_save_path = f"videos/{result_folder.name}/{final_output_path.name}"
+            output_json = json.dumps({
+                "predictions": [last_prediction] if last_prediction else [],
+                "isVideo": True,
+                "saved_file": relative_save_path,
+                "trackpoint": trackpoints
+            }, indent=4)
 
-                def format_trackpoint_single_line(json_text):
-                    return re.sub(
-                        r'"trackpoint": \[\s*((?:\d+,?\s*)+)\]',
-                        lambda m: '"trackpoint": [' + ','.join(x.strip() for x in m.group(1).split(',')) + ']',
-                        json_text
-                    )
+            def format_trackpoint_single_line(json_text):
+                return re.sub(
+                    r'"trackpoint": \[\s*((?:\d+,?\s*)+)\]',
+                    lambda m: '"trackpoint": [' + ','.join(x.strip() for x in m.group(1).split(',')) + ']',
+                    json_text
+                )
 
-                output_json = json.dumps({
-                    "predictions": predictions,
-                    "isVideo": is_video,
-                    "saved_file": relative_save_path,
-                    "trackpoint": trackpoints
-                }, indent=4)
+            output_json = format_trackpoint_single_line(output_json)
+            print(output_json)
 
-                output_json = format_trackpoint_single_line(output_json)
-                print(output_json)
-
-    
 
         else:
             detected_img_path = None
