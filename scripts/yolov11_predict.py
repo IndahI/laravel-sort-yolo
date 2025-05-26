@@ -155,12 +155,23 @@ def main(file_path):
                 if not ret:
                     break
 
+                dets_to_sort, _ = get_bounding_boxes(frame, model, object_class=[0, 1, 2])
+
+                if dets_to_sort.shape[0] == 0:
+                    dets_to_sort = np.empty((0, 6), dtype=np.float32)
+
+                # Update tracker sekali saja dan simpan hasilnya
+                tracked_dets = sort_tracker.update(dets_to_sort)
+
+                # Tambahkan frame_id hanya jika ada track aktif
+                if tracked_dets.shape[0] > 0:
+                    trackpoints.append(frame_id)
+
+                # Proses gambar dan visualisasi
                 im_tracked = process_and_track(model, frame, sort_tracker, frame_id)
                 out.write(im_tracked)
 
-                trackpoints.append(frame_id)
-
-                # Ambil prediksi dari frame ini
+                # Simpan prediksi terakhir (jika ada)
                 results = model(frame)
                 for result in results:
                     if result.boxes is not None and len(result.boxes) > 0:
