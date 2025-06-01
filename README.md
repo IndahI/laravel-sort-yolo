@@ -7,6 +7,26 @@
 4. Mysql
 5. Python
 
+### Caution
+I am using absolute path for python call and other data like in yolov11_predict.py
+Please change it if you want to try in your local windows
+1. YOLOController
+    ```bash
+    $python = "C:\\Users\\Indah\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
+    ```
+2. yolov11_predict.py
+    ```bash
+    with open(r"C:\xampp\htdocs\laravel\websitepa_versi3\storage\app\result.json", "w", encoding="utf-8") as f:
+    ```
+
+     ```bash
+    with open(r"C:\xampp\htdocs\laravel\websitepa_versi3\storage\app\progress.txt", "w") as f:
+    ```
+
+    ```bash
+    ffmpeg_path =  r"C:\Users\Indah\Downloads\ffmpeg-2025-05-29-git-75960ac270-essentials_build\ffmpeg-2025-05-29-git-75960ac270-essentials_build\bin\ffmpeg.exe"
+    ```
+
 ### How to Run the Code
 
 1. Clone the repository:

@@ -25,12 +25,12 @@
                 <h4 class="mb-3">🗺️ Visualisasi Lokasi (Leaflet)</h4>
 
                 <div class="form-check form-switch mb-2">
-                    <input class="form-check-input" type="checkbox" id="toggleFirstLastMarkers">
-                    <label class="form-check-label" for="toggleFirstLastMarkers">Tampilkan Hanya Marker Pertama & Terakhir</label>
+                    <input class="form-check-input" type="checkbox" id="toggleMarkers">
+                    <label class="form-check-label" for="toggleMarkers">Tampilkan Semua Marker</label>
                 </div>
                 <div class="form-check form-switch mb-3">
-                    <input class="form-check-input" type="checkbox" id="toggleMarkers" checked>
-                    <label class="form-check-label" for="toggleMarkers">Tampilkan Semua Marker</label>
+                    <input class="form-check-input" type="checkbox" id="toggleFirstLastMarkers" checked>
+                    <label class="form-check-label" for="toggleFirstLastMarkers">Tampilkan Hanya Marker Pertama & Terakhir</label>
                 </div>
 
                 <div id="map" class="rounded border"></div>
@@ -63,62 +63,117 @@
 @endsection
 
 @section('scripts')
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    @if (!empty($trackPoints))
-    <script>
-        var trackPoints = @json($trackPoints);
-        var map;
-        var allMarkers = [];
-        var firstLastMarkers = [];
-        var latlngs = [];
+@if (!empty($trackPoints))
+<script>
+    var trackPoints = @json($trackPoints);
+    var map;
+    var allMarkers = [];
+    var firstLastMarkers = [];
+    var latlngs = [];
 
-        if (trackPoints.length > 0) {
-            map = L.map('map').setView([trackPoints[0].lat, trackPoints[0].lng], 10);
+    var animationLine; // untuk menyimpan referensi polyline animasi
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 22,
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(map);
+    if (trackPoints.length > 0) {
+        map = L.map('map').setView([trackPoints[0].latitude, trackPoints[0].longitude], 13);
 
-            trackPoints.forEach(function(point, index) {
-                if (point.lat && point.lng) {
-                    var marker = L.marker([point.lat, point.lng])
-                        .bindPopup("Frame ke-" + point.frame);
-                    allMarkers.push(marker);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 22,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
 
-                    if (index === 0 || index === trackPoints.length - 1) {
-                        firstLastMarkers.push(marker);
-                    }
+        trackPoints.forEach(function(point, index) {
+            if (point.latitude && point.longitude) {
+                var marker = L.marker([point.latitude, point.longitude])
+                    .bindPopup("Frame ke-" + point.frame);
+                allMarkers.push(marker);
 
-                    marker.addTo(map);
-                    latlngs.push([point.lat, point.lng]);
+                if (index === 0 || index === trackPoints.length - 1) {
+                    firstLastMarkers.push(marker);
                 }
-            });
 
-            if (latlngs.length > 1) {
-                var polyline = L.polyline(latlngs, { color: 'blue' }).addTo(map);
-                map.fitBounds(polyline.getBounds());
-            } else {
-                map.setView(latlngs[0], 19);
+                latlngs.push([point.latitude, point.longitude]);
             }
+        });
+
+        if (latlngs.length > 1) {
+            var polyline = L.polyline(latlngs, { color: 'blue' }).addTo(map);
+            map.fitBounds(polyline.getBounds(), { maxZoom: 18 });
+        } else if (latlngs.length === 1) {
+            map.setView(latlngs[0], 16);
+        }
+    }
+
+    function playTrackAnimation() {
+        if (animationLine) {
+            animationLine.remove();
         }
 
-        document.getElementById('toggleMarkers').addEventListener('change', function () {
-            const show = this.checked;
-            allMarkers.forEach(m => show ? m.addTo(map) : m.remove());
-            document.getElementById('toggleFirstLastMarkers').checked = false;
-        });
+        animationLine = L.polyline([], { color: 'red' }).addTo(map);
+        let index = 0;
+        const delay = 50;
 
-        document.getElementById('toggleFirstLastMarkers').addEventListener('change', function () {
-            const show = this.checked;
-            allMarkers.forEach(m => m.remove());
-            if (show) {
-                firstLastMarkers.forEach(m => m.addTo(map));
-                document.getElementById('toggleMarkers').checked = false;
-            }
-        });
-    </script>
-    @endif
+        function drawNextPoint() {
+            if (index >= latlngs.length) return;
+            animationLine.addLatLng(latlngs[index]);
+            index++;
+            setTimeout(drawNextPoint, delay);
+        }
+
+        drawNextPoint();
+    }
+
+    // Fungsi untuk reset semua marker dan animasi
+    function resetMap() {
+        allMarkers.forEach(m => m.remove());
+        firstLastMarkers.forEach(m => m.remove());
+        if (animationLine) {
+            animationLine.remove();
+            animationLine = null;
+        }
+    }
+
+    document.getElementById('toggleMarkers').addEventListener('change', function () {
+        const show = this.checked;
+        resetMap();
+
+        if (show) {
+            allMarkers.forEach(m => m.addTo(map));
+            // Tidak ada animasi saat toggleMarkers aktif
+            document.getElementById('toggleFirstLastMarkers').checked = false;
+        }
+    });
+
+    document.getElementById('toggleFirstLastMarkers').addEventListener('change', function () {
+        const show = this.checked;
+        resetMap();
+
+        if (show) {
+            firstLastMarkers.forEach(m => m.addTo(map));
+            playTrackAnimation();  // Animasi hanya di sini
+            document.getElementById('toggleMarkers').checked = false;
+        }
+    });
+
+    // Inisialisasi tampilan saat load page
+    window.addEventListener('DOMContentLoaded', (event) => {
+        if (document.getElementById('toggleMarkers').checked) {
+            resetMap();
+            allMarkers.forEach(m => m.addTo(map));
+            document.getElementById('toggleFirstLastMarkers').checked = false;
+        } else if (document.getElementById('toggleFirstLastMarkers').checked) {
+            resetMap();
+            firstLastMarkers.forEach(m => m.addTo(map));
+            playTrackAnimation();
+            document.getElementById('toggleMarkers').checked = false;
+        } else {
+            resetMap();
+        }
+    });
+</script>
+@endif
 @endsection
+
+
