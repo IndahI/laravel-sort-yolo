@@ -62,9 +62,9 @@ class YOLOController extends Controller
         $detectionId = $detection->id;
 
         if ($fullSrtPath) {
-            $cmd = "start /B \"\" \"$python\" \"$script\" \"$fullInputPath\" \"$fullSrtPath\" \"$detectionId\" >nul 2>&1";
+            $cmd = "$python \"$script\" \"$fullInputPath\" \"$fullSrtPath\" \"$detectionId\" > /dev/null 2>&1 &";
         } else {
-            $cmd = "start /B \"\" \"$python\" \"$script\" \"$fullInputPath\" \"$detectionId\" >nul 2>&1";
+            $cmd = "$python \"$script\" \"$fullInputPath\" \"$detectionId\" > /dev/null 2>&1 &";
         }
 
         Log::info("Menjalankan Python script:", [
