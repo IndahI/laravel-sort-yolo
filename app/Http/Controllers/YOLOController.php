@@ -9,188 +9,146 @@ use Intervention\Image\ImageManager;
 
 class YOLOController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function getProgress()
     {
-        //
+        $path = storage_path('app/progress.txt');
+        $progress = file_exists($path) ? intval(file_get_contents($path)) : 0;
+        return response()->json(['progress' => $progress]);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+    public function predictAjax(Request $request)
     {
-        //
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
-    }
-
-
-    public function predictCombined(Request $request)
-    {
-        set_time_limit(3000);
+        set_time_limit(0);
 
         $request->validate([
             'file' => 'required|mimes:jpeg,png,jpg,mp4,avi,mov,mkv|max:102400',
+            'srt_file' => 'nullable|file|mimetypes:text/plain,text/srt',
         ]);
 
-        // ======== 1. Proses FILE Video/Gambar =========
         $file = $request->file('file');
-        $fileName = time() . '.' . $file->getClientOriginalExtension();
-        $filePath = $file->storeAs('uploads', $fileName, 'public');
-        $fileFullPath = storage_path('app/public/' . $filePath);
-        $isVideo = in_array(strtolower($file->getClientOriginalExtension()), ['mp4', 'avi', 'mov', 'mkv']);
+        $filename = time() . '.' . $file->getClientOriginalExtension();
+        $filePath = $file->storeAs('uploads', $filename, 'public');
 
-        $gpsFromImage = null;
-
-        // ✅ Ambil GPS dari EXIF jika file gambar
-        if (!$isVideo) {
-            try {
-                $exif = @exif_read_data($fileFullPath);
-                if ($exif && isset($exif['GPSLatitude'], $exif['GPSLongitude'], $exif['GPSLatitudeRef'], $exif['GPSLongitudeRef'])) {
-                    $lat = $this->getGpsDecimal($exif['GPSLatitude'], $exif['GPSLatitudeRef']);
-                    $lng = $this->getGpsDecimal($exif['GPSLongitude'], $exif['GPSLongitudeRef']);
-                    $gpsFromImage = ['lat' => $lat, 'lng' => $lng];
-                }
-            } catch (\Exception $e) {
-                Log::error("Gagal membaca metadata EXIF: " . $e->getMessage());
-            }
+        // Simpan srt jika ada
+        $srtPath = null;
+        if ($request->hasFile('srt_file')) {
+            $srt = $request->file('srt_file');
+            $srtPath = $srt->storeAs('uploads', time() . '.srt', 'public');
         }
 
-        // Eksekusi skrip YOLO
-        $pythonScript = base_path('scripts/yolov11_predict.py');
-        $python = "C:\\Python313\\python.exe";
-        $command = escapeshellcmd("$python $pythonScript $fileFullPath");
-        $output = shell_exec($command);
+        // Kosongkan progress
+        file_put_contents(storage_path('app/progress.txt'), '0');
 
-        if (!$output || !preg_match('/\{.*\}/s', $output, $matches)) {
-            return back()->with('error', 'Gagal memproses YOLO atau format JSON tidak valid.');
+        // Buat file result.json kosong
+        $resultPath = storage_path('app/result.json');
+        file_put_contents($resultPath, json_encode([]));
+
+        // Simpan data awal ke database
+        $detection = Detection::create([
+            'filename_original' => $filename,
+            'detected_file_path' => '', // masih kosong, diisi nanti di getResultView
+            'is_video' => in_array($file->getClientOriginalExtension(), ['mp4', 'avi', 'mov', 'mkv']),
+            'predictions' => null, // akan diisi nanti
+            'track_points' => null,
+            'srtPath' => $srtPath,
+            'status' => 'processing' // jika ada kolom status
+        ]);
+
+        // Jalankan script Python
+        $python = "python3";
+        $script = base_path('scripts/yolov11_predict.py');
+        $fullInputPath = storage_path('app/public/' . $filePath);
+        $fullSrtPath = $srtPath ? storage_path('app/public/' . $srtPath) : '';
+        $detectionId = $detection->id;
+
+        if ($fullSrtPath) {
+            $cmd = "start /B \"\" \"$python\" \"$script\" \"$fullInputPath\" \"$fullSrtPath\" \"$detectionId\" >nul 2>&1";
+        } else {
+            $cmd = "start /B \"\" \"$python\" \"$script\" \"$fullInputPath\" \"$detectionId\" >nul 2>&1";
         }
 
-        $response = json_decode(trim($matches[0]), true);
-        if (!$response || !isset($response['saved_file'])) {
-            return back()->with('error', 'Format JSON tidak sesuai atau kosong.');
+        Log::info("Menjalankan Python script:", [
+            'cmd' => $cmd,
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
+        pclose(popen($cmd, "r"));
+
+        return response()->json(['status' => 'processing']);
+    }
+
+    public function getResultView()
+    {
+        $jsonPath = storage_path('app/result.json');
+        if (!file_exists($jsonPath)) {
+            return response()->json(['error' => 'No result found'], 404);
         }
 
-        $detectedFilePath = $response['saved_file'];
+        $response = json_decode(file_get_contents($jsonPath), true);
+
+        $detectionId = $response['id'] ?? null;
+        if (!$detectionId) {
+            return response()->json(['error' => 'Detection ID not found in result'], 400);
+        }
+
+        $detection = Detection::find($detectionId);
+        if (!$detection) {
+            return response()->json(['error' => 'Detection not found in database'], 404);
+        }
+
+        $originalFilename = $detection->filename_original; // sudah disimpan di awal saat upload
+        $detectedFilePath = $response['saved_file'] ?? '';
         $isVideo = $response['isVideo'] ?? false;
         $predictions = $response['predictions'] ?? [];
-        $frameTrackpoints = $response['trackpoint'] ?? [];
+        $trackFrames = $response['trackpoint'] ?? [];
+        $srtPath = $response['srt_file_path'] ?? null;
 
-        // ======== 2. Proses FILE SRT =========
-        $srtFile = $request->file('srt_file');
-        $srtContent = '';
-
-        if ($isVideo) {
-            if ($srtFile && $srtFile->isValid()) {
-                $srtContent = file_get_contents($srtFile->getRealPath());
-            } else {
-                return back()->with('error', 'File metadata (.srt) wajib di-upload untuk video.');
-            }
-        }
-
-        preg_match_all('/\[latitude:\s*(-?\d+\.\d+)\]\s*\[longitude:\s*(-?\d+\.\d+)\]/', $srtContent, $matches, PREG_SET_ORDER);
-        
         $trackPoints = [];
 
-        foreach ($matches as $index => $match) {
-            if (in_array($index, $frameTrackpoints)) {
-                $trackPoints[] = [
-                    'frame' => $index,
-                    'lat' => floatval($match[1]),
-                    'lng' => floatval($match[2]),
+        // Ekstrak GPS dari SRT file
+        if ($srtPath && file_exists($srtPath)) {
+            $srtContent = file_get_contents($srtPath);
+
+            $pattern = '/SrtCnt\s*:\s*(\d+).*?\[latitude:\s*(-?\d+\.\d+)\]\s*\[longitude:\s*(-?\d+\.\d+)\]/s';
+            preg_match_all($pattern, $srtContent, $matches, PREG_SET_ORDER);
+
+            $gpsByFrame = [];
+            foreach ($matches as $match) {
+                $frame = (int)$match[1] - 1;
+                $gpsByFrame[$frame] = [
+                    'latitude' => (float)$match[2],
+                    'longitude' => (float)$match[3],
                 ];
+            }
+
+            foreach ($trackFrames as $frame) {
+                if (isset($gpsByFrame[$frame])) {
+                    $trackPoints[] = [
+                        'frame' => $frame,
+                        'latitude' => $gpsByFrame[$frame]['latitude'],
+                        'longitude' => $gpsByFrame[$frame]['longitude'],
+                    ];
+                }
             }
         }
 
-        // Tambahkan GPS dari EXIF jika bukan video dan tidak ada trackpoint dari metadata
-        if (!$isVideo && empty($trackPoints) && $gpsFromImage) {
-            $trackPoints[] = [
-                'frame' => 0,
-                'lat' => $gpsFromImage['lat'],
-                'lng' => $gpsFromImage['lng'],
-            ];
-        }
-
-        // ======== 3. Simpan ke database =========
-        $detection = Detection::create([
-            'filename_original' => $file->getClientOriginalName(),
+        // Update ke database
+        $detection->update([
             'detected_file_path' => $detectedFilePath,
             'is_video' => $isVideo,
-            'predictions' => $predictions,
-            'track_points' => $trackPoints,
+            'predictions' => json_encode($predictions),
+            'track_points' => json_encode($trackPoints),
+            'srtPath' => $srtPath,
+            'status' => 'completed'
         ]);
 
         return view('results', [
-            'filePath' => $filePath,
+            'filePath' => $originalFilename,
             'detectedFilePath' => $detectedFilePath,
             'isVideo' => $isVideo,
             'predictions' => $predictions,
-            'trackPoints' => $trackPoints
+            'trackPoints' => $trackPoints,
+            'srtPath' => $srtPath
         ]);
     }
-
-
-    private function getGpsDecimal($coordinate, $hemisphere)
-    {
-        for ($i = 0; $i < 3; $i++) {
-            $part = explode('/', $coordinate[$i]);
-            $coordinate[$i] = count($part) == 2 ? floatval($part[0]) / floatval($part[1]) : floatval($part[0]);
-        }
-
-        $decimal = $coordinate[0] + ($coordinate[1] / 60.0) + ($coordinate[2] / 3600.0);
-        return ($hemisphere == 'S' || $hemisphere == 'W') ? -$decimal : $decimal;
-    }
-
-
-    public function history()
-    {
-        $detections = Detection::orderBy('created_at', 'desc')->get();
-        return view('history', compact('detections'));
-    }
-        
-    public function show($id)
-    {
-        $detection = Detection::findOrFail($id);
-        return view('results', [
-            'filePath' => $detection->filename_original,
-            'detectedFilePath' => $detection->detected_file_path,
-            'isVideo' => $detection->is_video,
-            'predictions' => $detection->predictions ?? [],
-            'trackPoints' => $detection->track_points ?? [],
-        ]);
-    }
-
 }

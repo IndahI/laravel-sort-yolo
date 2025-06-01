@@ -3,39 +3,51 @@ import sys
 import json
 import cv2
 import re
+import logging
+import contextlib
 from ultralytics import YOLO
 from pathlib import Path
 import numpy as np
 from sort import Sort
+import subprocess
+from ultralytics.utils import LOGGER
 
-def convert_video_to_mp4(input_path, output_path):
-    """
-    Convert video to MP4 format using OpenCV with a more compatible codec
-    """
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise Exception("Gagal membuka video input")
+# __file__ adalah path ke yolov11_predict.py (misal: /home/user/project/scripts/yolov11_predict.py)
+SCRIPT_DIR = os.path.dirname(__file__)  # .../project/scripts
 
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')  
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))  # naik 1 level ke .../project
 
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+result_path = os.path.join(BASE_DIR, "storage", "app", "result.json")
+progress_path = os.path.join(BASE_DIR, "storage", "app", "progress.txt")
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        out.write(frame)
+@contextlib.contextmanager
+def suppress_all_output():
+    with open(os.devnull, "w") as devnull:
+        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            # Matikan Ultralytics LOGGER
+            previous_level = LOGGER.level
+            LOGGER.setLevel(logging.ERROR)
+            yield
+            # Kembalikan level logger setelah selesai
+            LOGGER.setLevel(previous_level)
 
-    cap.release()
-    out.release()
-    os.remove(input_path)  
+def update_json(json_text):
+    try:
+        with open(result_path, "w", encoding="utf-8") as f:
+            f.write(json_text)
+    except Exception as e:
+        print(f"Failed to write to result.json: {e}")
 
+def update_progress(percent):
+    try:
+        with open(progress_path, "w") as f:
+            f.write(str(percent))
+    except Exception as e:
+        print(f"Failed to write progress: {e}")
 
 def get_bounding_boxes(frame, model, object_class, bbox_txt=None, frame_id=None):
-    results = model(frame)
+    with suppress_all_output():
+        results = model(frame)
     dets_to_sort = np.empty((0, 6))  # Prepare an empty array for SORT
     class_names = model.names  # Get class names from the model
     bounding_boxes = [] # Reset data bounding box setiap frame baru
@@ -99,7 +111,7 @@ def process_and_track(model, frame, sort_tracker, frame_id, object_class=[0, 1, 
 
     return im0
 
-def main(file_path):
+def main(file_path, srt_path=None, detection_id=None):
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, "best_nd_final_200epoch.pt")
@@ -107,12 +119,17 @@ def main(file_path):
         if not os.path.exists(model_path):
             print(json.dumps({"error": f"Model tidak ditemukan di {model_path}"}))
             return
+        
+        
+        output_path = os.path.join("storage", "app", "result.json")  # pastikan path benar
 
         model = YOLO(model_path)
+        update_progress(5)
 
         if not os.path.isfile(file_path):
             print(json.dumps({"error": f"File tidak ditemukan: {file_path}"}))
             return
+        update_progress(10)
         
         file_ext = os.path.splitext(file_path)[1].lower()
         is_video = file_ext in [".mp4", ".avi", ".mov", ".mkv"]
@@ -143,18 +160,21 @@ def main(file_path):
                     break
                 i += 1
 
-            final_output_path = result_folder / "tracked_output.mp4"
-            out = cv2.VideoWriter(str(final_output_path), cv2.VideoWriter_fourcc(*'avc1'), fps, (width, height))
+            temp_output_path = result_folder / "temp_output.avi"
+            out = cv2.VideoWriter(str(temp_output_path), cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))
 
             frame_id = 0
             trackpoints = []
             last_prediction = None
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
 
+                progress_now = int((frame_id / total_frames) * 80) + 10
+                update_progress(progress_now)
                 dets_to_sort, _ = get_bounding_boxes(frame, model, object_class=[0, 1, 2])
 
                 if dets_to_sort.shape[0] == 0:
@@ -172,7 +192,8 @@ def main(file_path):
                 out.write(im_tracked)
 
                 # Simpan prediksi terakhir (jika ada)
-                results = model(frame)
+                with suppress_all_output():
+                    results = model(frame)
                 for result in results:
                     if result.boxes is not None and len(result.boxes) > 0:
                         last_box = result.boxes[-1]
@@ -189,23 +210,36 @@ def main(file_path):
             cap.release()
             out.release()
 
-            # Konversi output akhir jika belum MP4
-            detected_video_path = final_output_path
-            if detected_video_path and detected_video_path.exists():
-                converted_output_path = result_folder / (detected_video_path.stem + ".mp4")
-                if detected_video_path.suffix.lower() != ".mp4":
-                    convert_video_to_mp4(str(detected_video_path), str(converted_output_path))
-                    final_output_path = converted_output_path
-                else:
-                    final_output_path = detected_video_path
+            ffmpeg_path = "ffmpeg" # sesuaikan dengan milikmu
+            final_output_path = result_folder / "tracked_output.mp4"
+
+            update_progress(95)
+
+            process = subprocess.Popen([
+                ffmpeg_path, "-y",
+                "-i", str(temp_output_path),
+                "-vcodec", "libx264",
+                "-pix_fmt", "yuv420p",
+                str(final_output_path)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            process.wait()
+
+            update_progress(98)
 
             relative_save_path = f"videos/{result_folder.name}/{final_output_path.name}"
-            output_json = json.dumps({
+            # Buat dict dulu, bukan string JSON
+            output_dict = {
+                "id" : detection_id,
                 "predictions": [last_prediction] if last_prediction else [],
                 "isVideo": True,
                 "saved_file": relative_save_path,
-                "trackpoint": trackpoints
-            }, indent=4)
+                "trackpoint": trackpoints,
+                "srt_file_path" : srt_path
+            }
+
+            # Buat string JSON setelah modifikasi dict
+            output_json = json.dumps(output_dict, indent=4)
 
             def format_trackpoint_single_line(json_text):
                 return re.sub(
@@ -215,12 +249,16 @@ def main(file_path):
                 )
 
             output_json = format_trackpoint_single_line(output_json)
-            print(output_json)
+
+            # Simpan JSON ke file atau update sesuai fungsimu
+            update_json(output_json)
+            update_progress(100)
 
 
         else:
             detected_img_path = None
             results = model(file_path, save=True, project=str(save_dir_img), name=save_name_images)
+            update_progress(50)
             predictions = []
             for box in results[0].boxes:
                 label_id = int(box.cls.item())
@@ -246,18 +284,33 @@ def main(file_path):
                 relative_save_path = f"images/detected_{image_name}"
 
             output_json = json.dumps({
+                "id" : detection_id,
                 "predictions": predictions,
                 "saved_file": relative_save_path
             }, indent=4)
-            print(output_json)
+            # print(output_json)
+            update_json(output_json)
+            update_progress(100)
 
     except Exception as e:
         print(json.dumps({"error": str(e)}))
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(json.dumps({"error": "Usage: python yolo_predict.py <file_path>"}))
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "Usage: python yolo_predict.py <file_path> [srt_file_path] [detection_id]"}))
         sys.exit(1)
 
     file_path = sys.argv[1]
-    main(file_path)
+
+    srt_path = None
+    detection_id = None
+
+    # Jika argumen ke-3 adalah file .srt, maka itu srt_path
+    if len(sys.argv) >= 3 and sys.argv[2].lower().endswith('.srt'):
+        srt_path = sys.argv[2]
+        if len(sys.argv) >= 4:
+            detection_id = sys.argv[3]
+    elif len(sys.argv) >= 3:
+        detection_id = sys.argv[2]
+
+    main(file_path, srt_path, detection_id)

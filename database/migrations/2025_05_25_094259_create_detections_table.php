@@ -4,16 +4,19 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('detections', function (Blueprint $table) {
             $table->id();
             $table->string('filename_original');
-            $table->string('detected_file_path');
+            $table->string('detected_file_path')->nullable(); // bisa null saat create awal
             $table->boolean('is_video');
             $table->json('predictions')->nullable();
             $table->json('track_points')->nullable();
+            $table->string('srt_file_path')->nullable();
+            $table->string('status')->default('processing');  // status dengan default 'processing'
             $table->timestamps();
         });
     }

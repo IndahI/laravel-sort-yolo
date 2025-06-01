@@ -7,6 +7,29 @@
 4. Mysql
 5. Python
 
+
+### Caution
+I am using relative path for python call and other data like in yolov11_predict.py<br>
+Please change it if you want to try in your local linux
+1. YOLOController
+    ```bash
+    $python = "python3";
+    ```
+2. yolov11_predict.py
+    ```bash
+    SCRIPT_DIR = os.path.dirname(__file__)  # .../project/scripts
+
+    BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))  # naik 1 level ke .../project
+
+    result_path = os.path.join(BASE_DIR, "storage", "app", "result.json")
+    progress_path = os.path.join(BASE_DIR, "storage", "app", "progress.txt")
+    ```
+
+    ```bash
+    ffmpeg_path = "ffmpeg"
+    ```
+
+
 ### How to Run the Code
 
 1. Clone the repository:
@@ -17,26 +40,31 @@
     ```bash
     cd websitepa_final
     ```
-3. Update pip and install dependencies for the detect and tracking model:
+3. Get FFMPEG package
+    ```bash
+    sudo apt update
+    sudo apt install ffmpeg libx264-dev
+    ```
+4. Update pip and install dependencies for the detect and tracking model:
     ```bash
     pip install --upgrade pip
     pip install -r requirements.txt
     ```
-4. Migrate the database
+5. Migrate the database
     ```bash
     php artisan migrate
     ```
-5. Make folder inside storage/app/public
+6. Make folder inside storage/app/public
     ```bash
     mkdir uploads
     mkdir videos
     mkdir images
     ```
-6. Make those folder shortcut
+7. Make those folder shortcut
     ```bash
     php artisan storage:link
     ```
-6. Run the script:
+8. Run the script:<br>
     You will need two terminal
     - Laravel:
       ```bash
