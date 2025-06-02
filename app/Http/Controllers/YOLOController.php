@@ -132,13 +132,13 @@ class YOLOController extends Controller
             }
         }
 
-        // Update ke database
+          // Update ke database
         $detection->update([
             'detected_file_path' => $detectedFilePath,
             'is_video' => $isVideo,
             'predictions' => json_encode($predictions),
             'track_points' => json_encode($trackPoints),
-            'srtPath' => $srtPath,
+            'srt_file_path' => $srtPath,
             'status' => 'completed'
         ]);
 
@@ -148,7 +148,8 @@ class YOLOController extends Controller
             'isVideo' => $isVideo,
             'predictions' => $predictions,
             'trackPoints' => $trackPoints,
-            'srtPath' => $srtPath
+            'srt_file_path' => $srtPath,
+            'status' => 'completed'
         ]);
     }
 }
