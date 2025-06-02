@@ -19,12 +19,14 @@ class HistoryController extends Controller
     public function show($id)
     {
         $detection = Detection::findOrFail($id);
+
         return view('results', [
             'filePath' => $detection->filename_original,
             'detectedFilePath' => $detection->detected_file_path,
             'isVideo' => $detection->is_video,
-            'predictions' => $detection->predictions ?? [],
-            'trackPoints' => $detection->track_points ?? [],
+            'predictions' => json_decode($detection->predictions ?? '[]', true),
+            'trackPoints' => json_decode($detection->track_points ?? '[]', true),
+            'srt_file_path' => $detection->srt_file_path ?? null,
         ]);
     }
 }
