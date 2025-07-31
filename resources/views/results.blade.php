@@ -5,6 +5,8 @@
 @section('styles')
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- Leaflet Compass CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-compass/dist/leaflet-compass.min.css" />
     <style>
         #map {
             height: 400px;
@@ -32,8 +34,36 @@
                     <input class="form-check-input" type="checkbox" id="toggleFirstLastMarkers" checked>
                     <label class="form-check-label" for="toggleFirstLastMarkers">Tampilkan Hanya Marker Pertama & Terakhir</label>
                 </div>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="toggleStraightLine">
+                    <label class="form-check-label" for="toggleStraightLine">Tampilkan Garis Lurus (Awal → Akhir, Bukan Jalur Drone)</label>
+                </div>
 
                 <div id="map" class="rounded border"></div>
+                
+                <div class="mt-3">
+                    <p id="totalDistance" class="fw-bold text-primary"></p>
+                    <p id="straightDistance" class="fw-bold text-secondary"></p>
+                </div>
+
+                <div class="mt-3">
+                <h6>Keterangan Warna Marker:</h6>
+                <ul class="list-group small">
+                    <li class="list-group-item">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png" width="20">
+                        <strong>Hijau:</strong> Titik pertama (frame awal)
+                    </li>
+                    <li class="list-group-item" id="legend-red" style="display: none;">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png" width="20">
+                        <strong>Merah:</strong> Titik lintasan di tengah (bukan awal/akhir)
+                    </li>
+                    <li class="list-group-item">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png" width="20">
+                        <strong>Biru:</strong> Titik terakhir (frame akhir)
+                    </li>
+                </ul>
+            </div>
+
             @endif
 
             {{-- SECTION 2: Hasil Deteksi SORT --}}
@@ -63,117 +93,13 @@
 @endsection
 
 @section('scripts')
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-compass/dist/leaflet-compass.min.js"></script>
 
-@if (!empty($trackPoints))
-<script>
-    var trackPoints = @json($trackPoints);
-    var map;
-    var allMarkers = [];
-    var firstLastMarkers = [];
-    var latlngs = [];
+    {{-- Kirim trackPoints ke JS --}}
+    <pre id="trackPoints" style="display: none;">@json($trackPoints)</pre>
 
-    var animationLine; // untuk menyimpan referensi polyline animasi
+    {{-- Panggil main.js sebagai module --}}
+    <script type="module" src="{{ asset('js/map/main.js') }}"></script>
 
-    if (trackPoints.length > 0) {
-        map = L.map('map').setView([trackPoints[0].latitude, trackPoints[0].longitude], 13);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 22,
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        trackPoints.forEach(function(point, index) {
-            if (point.latitude && point.longitude) {
-                var marker = L.marker([point.latitude, point.longitude])
-                    .bindPopup("Frame ke-" + point.frame);
-                allMarkers.push(marker);
-
-                if (index === 0 || index === trackPoints.length - 1) {
-                    firstLastMarkers.push(marker);
-                }
-
-                latlngs.push([point.latitude, point.longitude]);
-            }
-        });
-
-        if (latlngs.length > 1) {
-            var polyline = L.polyline(latlngs, { color: 'blue' }).addTo(map);
-            map.fitBounds(polyline.getBounds(), { maxZoom: 18 });
-        } else if (latlngs.length === 1) {
-            map.setView(latlngs[0], 16);
-        }
-    }
-
-    function playTrackAnimation() {
-        if (animationLine) {
-            animationLine.remove();
-        }
-
-        animationLine = L.polyline([], { color: 'red' }).addTo(map);
-        let index = 0;
-        const delay = 50;
-
-        function drawNextPoint() {
-            if (index >= latlngs.length) return;
-            animationLine.addLatLng(latlngs[index]);
-            index++;
-            setTimeout(drawNextPoint, delay);
-        }
-
-        drawNextPoint();
-    }
-
-    // Fungsi untuk reset semua marker dan animasi
-    function resetMap() {
-        allMarkers.forEach(m => m.remove());
-        firstLastMarkers.forEach(m => m.remove());
-        if (animationLine) {
-            animationLine.remove();
-            animationLine = null;
-        }
-    }
-
-    document.getElementById('toggleMarkers').addEventListener('change', function () {
-        const show = this.checked;
-        resetMap();
-
-        if (show) {
-            allMarkers.forEach(m => m.addTo(map));
-            // Tidak ada animasi saat toggleMarkers aktif
-            document.getElementById('toggleFirstLastMarkers').checked = false;
-        }
-    });
-
-    document.getElementById('toggleFirstLastMarkers').addEventListener('change', function () {
-        const show = this.checked;
-        resetMap();
-
-        if (show) {
-            firstLastMarkers.forEach(m => m.addTo(map));
-            playTrackAnimation();  // Animasi hanya di sini
-            document.getElementById('toggleMarkers').checked = false;
-        }
-    });
-
-    // Inisialisasi tampilan saat load page
-    window.addEventListener('DOMContentLoaded', (event) => {
-        if (document.getElementById('toggleMarkers').checked) {
-            resetMap();
-            allMarkers.forEach(m => m.addTo(map));
-            document.getElementById('toggleFirstLastMarkers').checked = false;
-        } else if (document.getElementById('toggleFirstLastMarkers').checked) {
-            resetMap();
-            firstLastMarkers.forEach(m => m.addTo(map));
-            playTrackAnimation();
-            document.getElementById('toggleMarkers').checked = false;
-        } else {
-            resetMap();
-        }
-    });
-</script>
-@endif
 @endsection
-
-

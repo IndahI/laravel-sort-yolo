@@ -2,12 +2,31 @@
 
 @section('title', 'Dashboard')
 
+@section('styles')
+    <style>
+        #progress-container {
+            height: 25px;
+            background: #e9ecef;
+            display: none;
+        }
+        #progress-bar {
+            width: 0;
+            height: 100%;
+            background-color: #0d6efd;
+            transition: width 0.5s ease;
+        }
+        #progress-text {
+            margin-top: 5px;
+        }
+    </style>
+@endsection
+
 @section('content')
 <div class="container py-5">
     <div class="row justify-content-center">
         <div class="col-md-8 text-center">
             <h2>Tracking Lintasan Korban Hanyut</h2>
-            <h4>Menggunakan deteksi YOLOv11 and Simple Online and Realtime Tracking</h4>
+            <h4>Menggunakan Deteksi YOLO dan Simple Online and Realtime Tracking</h4>
         </div>
         <div class="col-md-8">
             <div class="card shadow">
@@ -40,6 +59,17 @@
                             </div>
                         </div>
 
+                        <div class="mb-3">
+                            <label for="model" class="form-label">3. Pilih Model Deteksi</label>
+                            <select class="form-select" name="model" id="model" required>
+                                <option value="yolov7">YOLOv7</option>
+                                <option value="yolov11">YOLOv11</option>
+                            </select>
+                            <div class="form-text text-primary">
+                                📌 YOLOv7 lebih presisi, YOLOv11 lebih cepat.
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-success w-100" id="uploadButton">
                             🚀 Upload dan Proses
                         </button>
@@ -58,89 +88,7 @@
 </div>
 @endsection
 
+
 @section('scripts')
-<script>
-document.getElementById("upload-form").addEventListener("submit", function(e) {
-    e.preventDefault();
-
-    const form = this;
-    const formData = new FormData(form);
-
-    // Reset alerts
-    document.getElementById('alertSuccess').classList.add('d-none');
-    document.getElementById('alertError').classList.add('d-none');
-    document.getElementById('alertSuccess').innerText = '';
-    document.getElementById('alertError').innerText = '';
-
-    // Disable submit button
-    const uploadButton = document.getElementById('uploadButton');
-    uploadButton.disabled = true;
-    uploadButton.innerText = 'Uploading...';
-
-    // Show progress bar
-    const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
-    progressContainer.style.display = 'block';
-    progressBar.style.width = '0%';
-    progressText.style.display = 'block';
-    progressText.innerText = 'Progress: 0%';
-
-    fetch('/predict-ajax', {  // Ganti dengan route uploadmu
-        method: 'POST',
-        headers: {
-            'X-CSRF-TOKEN': '{{ csrf_token() }}'
-        },
-        body: formData
-    })
-    .then(response => {
-        if (!response.ok) throw response;
-        // Mulai tracking progress setelah upload request sukses
-        trackProgress();
-    })
-    .catch(async (error) => {
-        uploadButton.disabled = false;
-        uploadButton.innerText = '🚀 Upload dan Proses';
-
-        if (error.status === 422) {
-            const data = await error.json();
-            let errors = Object.values(data.errors).flat().join(' ');
-            document.getElementById('alertError').classList.remove('d-none');
-            document.getElementById('alertError').innerText = errors;
-        } else {
-            document.getElementById('alertError').classList.remove('d-none');
-            document.getElementById('alertError').innerText = 'Terjadi kesalahan server.';
-        }
-        progressContainer.style.display = 'none';
-        progressText.style.display = 'none';
-    });
-
-    function trackProgress() {
-        const interval = setInterval(() => {
-            fetch('/progress')  // Endpoint yang return { progress: <angka> }
-                .then(res => res.json())
-                .then(data => {
-                    progressBar.style.width = data.progress + '%';
-                    progressText.innerText = 'Progress: ' + data.progress + '%';
-                    if (data.progress >= 100) {
-                        clearInterval(interval);
-                        uploadButton.disabled = false;
-                        uploadButton.innerText = '🚀 Upload dan Proses';
-                        // Redirect ke halaman hasil
-                        window.location.href = '/result-page';
-                    }
-                })
-                .catch(() => {
-                    clearInterval(interval);
-                    uploadButton.disabled = false;
-                    uploadButton.innerText = '🚀 Upload dan Proses';
-                    document.getElementById('alertError').classList.remove('d-none');
-                    document.getElementById('alertError').innerText = 'Gagal mendapatkan progress.';
-                    progressContainer.style.display = 'none';
-                    progressText.style.display = 'none';
-                });
-        }, 1000);
-    }
-});
-</script>
+<script src="{{ asset('js/upload.js') }}"></script>
 @endsection

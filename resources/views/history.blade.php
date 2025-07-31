@@ -27,7 +27,8 @@
                             <th>Nama File</th>
                             <th>Tipe</th>
                             <th>Deteksi</th>
-                            <th>Jumlah Titik Lokasi</th>
+                            <th>Jumlah Titik Deteksi</th>
+                            <th>Jarak Deteksi (m)</th>
                             <th>Aksi</th>
                         </tr>
                     </thead>
@@ -36,21 +37,36 @@
                             @php
                                 $predictions = json_decode($detection->predictions, true);
                                 $trackPoints = json_decode($detection->track_points, true);
+
+                                if (is_array($predictions)) {
+                                    usort($predictions, function ($a, $b) {
+                                        if (strtolower($a['label']) === 'human' && strtolower($b['label']) !== 'human') {
+                                            return -1;
+                                        } elseif (strtolower($b['label']) === 'human' && strtolower($a['label']) !== 'human') {
+                                            return 1;
+                                        }
+                                        return 0;
+                                    });
+                                }
                             @endphp
                             <tr>
                                 <td>{{ $detection->created_at->format('d M Y H:i') }}</td>
                                 <td>{{ $detection->filename_original }}</td>
                                 <td>{{ $detection->is_video ? 'Video' : 'Gambar' }}</td>
                                 <td>
-                                    @if (is_array($predictions))
-                                        {{ implode(', ', array_map(fn($p) => $p['label'] . ' (' . number_format($p['confidence'] * 100, 2) . '%)', $predictions)) }}
+                                    @if (is_array($predictions) && count($predictions))
+                                        {{ implode(', ', array_map(function ($p) {
+                                            $label = strtolower($p['label']) === 'boat' ? 'Non-Human' : $p['label'];
+                                            return $label . ' (' . number_format($p['confidence'] * 100, 2) . '%)';
+                                        }, $predictions)) }}
                                     @else
                                         -
                                     @endif
                                 </td>
                                 <td>{{ is_array($trackPoints) ? count($trackPoints) : '-' }}</td>
+                                <td><div class="distance-cell" data-track='@json($trackPoints)'>-</div></td>
                                 <td>
-                                    <a href="{{ route('yolo.show', $detection->id) }}" class="btn btn-sm btn-primary">Lihat</a>
+                                    <a href="{{ route('hasil', $detection->id) }}" class="btn btn-sm btn-primary">Lihat</a>
                                 </td>
                             </tr>
                         @endforeach
@@ -65,7 +81,10 @@
         </div>
     </div>
 </div>
+@endsection
 
+@section('scripts')
+<script type="module" src="{{ asset('js/history.js') }}"></script>
 <script>
     document.getElementById('perPageSelect').addEventListener('change', function () {
         document.getElementById('perPageForm').submit();
