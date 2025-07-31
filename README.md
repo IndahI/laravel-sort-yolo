@@ -31,11 +31,11 @@ Please change it if you want to try in your local windows
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/IndahI/websitepa_final
+    git clone https://github.com/IndahI/laravel-sort-yolo
     ```
 2. Navigate to the cloned folder:
     ```bash
-    cd websitepa_final
+    cd laravel-sort-yolo
     ```
 3. Update pip and install dependencies for the detect and tracking model:
     ```bash
