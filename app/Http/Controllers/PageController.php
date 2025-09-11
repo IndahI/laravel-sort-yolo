@@ -9,7 +9,7 @@ class PageController extends Controller
 {
     public function getProgress()
     {
-        $path = storage_path('app/progress.txt');
+        $path = public_path('media/progress.txt'); 
         $progress = file_exists($path) ? intval(file_get_contents($path)) : 0;
         return response()->json(['progress' => $progress]);
     }

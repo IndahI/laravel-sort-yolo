@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /var/www/html
+
+# Salin file package untuk install dependencies
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm install
+
+# Expose port vite dev server
+EXPOSE 5173
+
+# Jalankan Vite Dev Server
+CMD ["npm", "run", "dev"]

@@ -9,7 +9,7 @@ class DetectionController extends Controller
 {
     public function getResultView()
     {
-        $jsonPath = storage_path('app/result.json');
+        $jsonPath = public_path('media/result.json');
         if (!file_exists($jsonPath)) {
             return response()->json(['error' => 'No result found'], 404);
         }
@@ -31,10 +31,17 @@ class DetectionController extends Controller
         $isVideo = $response['isVideo'] ?? false;
         $predictions = $response['predictions'] ?? [];
         $trackFrames = $response['trackpoint'] ?? [];
+
+        // pastikan path srt benar
         $srtPath = $response['srt_file_path'] ?? null;
+        if ($srtPath && !str_starts_with($srtPath, '/')) {
+            // kalau hasil YOLO cuma simpan nama file, gabungkan ke media dir
+            $srtPath = public_path('media/input/' . basename($srtPath));
+        }
 
         $trackPoints = [];
 
+        // === Ambil GPS dari SRT ===
         if ($srtPath && file_exists($srtPath)) {
             $srtContent = file_get_contents($srtPath);
             $pattern = '/SrtCnt\s*:\s*(\d+).*?\[latitude:\s*(-?\d+\.\d+)\]\s*\[longitude:\s*(-?\d+\.\d+)\]/s';
@@ -60,36 +67,45 @@ class DetectionController extends Controller
             }
         }
 
+        // === Kalau gambar, ambil GPS dari EXIF ===
         if (!$detection->is_video) {
             $imagePath = storage_path('app/public/uploads/' . $detection->filename_original);
-            $gps = $this->getGPSFromImage($imagePath);
-
-            if ($gps) {
-                $trackPoints[] = [
-                    'frame' => 0,
-                    'latitude' => $gps['latitude'],
-                    'longitude' => $gps['longitude'],
-                ];
+            if (file_exists($imagePath)) {
+                $gps = $this->getGPSFromImage($imagePath);
+                if ($gps) {
+                    $trackPoints[] = [
+                        'frame' => 0,
+                        'latitude' => $gps['latitude'],
+                        'longitude' => $gps['longitude'],
+                    ];
+                }
             }
         }
 
+        // === Update record detection ===
         $detection->update([
             'detected_file_path' => $detectedFilePath,
             'is_video' => $isVideo,
-            'predictions' => json_encode($predictions),
-            'track_points' => json_encode($trackPoints),
+            'predictions' => !empty($predictions) ? json_encode($predictions) : $detection->predictions,
+            'track_points' => !empty($trackPoints) ? json_encode($trackPoints) : $detection->track_points,
             'srt_file_path' => $srtPath,
             'status' => 'completed'
         ]);
 
-        return response()->json(['id' => $detection->id]);
+        return response()->json([
+            'id' => $detection->id,
+            'file' => $originalFilename,
+            'detected_file' => $detectedFilePath,
+            'is_video' => $isVideo,
+            'track_points' => $trackPoints
+        ]);
     }
 
     private function getGPSFromImage($filePath)
     {
         if (!file_exists($filePath)) return null;
 
-        $exif = exif_read_data($filePath, 0, true);
+        $exif = @exif_read_data($filePath, 0, true);
         if (!$exif || !isset($exif['GPS'])) return null;
 
         $gps = $exif['GPS'];

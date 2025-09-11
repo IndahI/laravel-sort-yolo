@@ -14,6 +14,7 @@ class Detection extends Model
         'predictions',
         'track_points',
         'srt_file_path',
+        'status', // ✅ tambahkan ini
     ];
 
     protected $casts = [

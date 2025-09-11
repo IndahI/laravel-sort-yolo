@@ -47,23 +47,25 @@
                 </div>
 
                 <div class="mt-3">
-                <h6>Keterangan Warna Marker:</h6>
-                <ul class="list-group small">
-                    <li class="list-group-item">
-                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png" width="20">
-                        <strong>Hijau:</strong> Titik pertama (frame awal)
-                    </li>
-                    <li class="list-group-item" id="legend-red" style="display: none;">
-                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png" width="20">
-                        <strong>Merah:</strong> Titik lintasan di tengah (bukan awal/akhir)
-                    </li>
-                    <li class="list-group-item">
-                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png" width="20">
-                        <strong>Biru:</strong> Titik terakhir (frame akhir)
-                    </li>
-                </ul>
-            </div>
+                    <h6>Keterangan Warna Marker:</h6>
+                    <ul class="list-group small">
+                        <li class="list-group-item">
+                            <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png" width="20">
+                            <strong>Hijau:</strong> Titik pertama (frame awal)
+                        </li>
+                        <li class="list-group-item" id="legend-red" style="display: none;">
+                            <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png" width="20">
+                            <strong>Merah:</strong> Titik lintasan di tengah (bukan awal/akhir)
+                        </li>
+                        <li class="list-group-item">
+                            <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png" width="20">
+                            <strong>Biru:</strong> Titik terakhir (frame akhir)
+                        </li>
+                    </ul>
+                </div>
 
+                {{-- Kirim trackPoints ke JS --}}
+                <pre id="trackPoints" style="display: none;">@json($trackPoints)</pre>
             @endif
 
             {{-- SECTION 2: Hasil Deteksi SORT --}}
@@ -71,11 +73,11 @@
             <div class="mb-4">
                 @if ($isVideo)
                     <video class="w-100 rounded" controls>
-                        <source src="{{ asset('storage/' . $detectedFilePath) }}" type="video/mp4">
+                        <source src="{{ asset('media/' . $detectedFilePath) }}" type="video/mp4">
                         Your browser does not support the video tag.
                     </video>
                 @else
-                    <img src="{{ asset('storage/' . $detectedFilePath) }}" class="img-fluid rounded">
+                    <img src="{{ asset('media/' . $detectedFilePath) }}" class="img-fluid rounded">
                     @if (!empty($predictions))
                         <ul class="list-group mt-3">
                             @foreach ($predictions as $prediction)
@@ -96,10 +98,6 @@
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-compass/dist/leaflet-compass.min.js"></script>
 
-    {{-- Kirim trackPoints ke JS --}}
-    <pre id="trackPoints" style="display: none;">@json($trackPoints)</pre>
-
     {{-- Panggil main.js sebagai module --}}
     <script type="module" src="{{ asset('js/map/main.js') }}"></script>
-
 @endsection
