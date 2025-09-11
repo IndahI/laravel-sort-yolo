@@ -1,31 +1,8 @@
-## Laravel with Bootstrap deploy YOLOv11 Object Tracking using Simple Online and Real Time Tracking 🚀
+## Laravel with Bootstrap deploy YOLOv11 Object Tracking using Simple Online and Real Time Tracking Development Environment (Docker)
 
 ### What's you need in your local to run this code
-1. Laravel
-2. Composer
-3. Node js
-4. Mysql
-5. Python
-
-### Caution
-I am using absolute path for python call and other data like in yolov11_predict.py
-Please change it if you want to try in your local windows
-1. YOLOController
-    ```bash
-    $python = "C:\\Users\\Indah\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
-    ```
-2. yolov11_predict.py
-    ```bash
-    with open(r"C:\xampp\htdocs\laravel\websitepa_versi3\storage\app\result.json", "w", encoding="utf-8") as f:
-    ```
-
-     ```bash
-    with open(r"C:\xampp\htdocs\laravel\websitepa_versi3\storage\app\progress.txt", "w") as f:
-    ```
-
-    ```bash
-    ffmpeg_path =  r"C:\Users\Indah\Downloads\ffmpeg-2025-05-29-git-75960ac270-essentials_build\ffmpeg-2025-05-29-git-75960ac270-essentials_build\bin\ffmpeg.exe"
-    ```
+1. Docker & Docker Compose 
+2. Node.js & npm 
 
 ### How to Run the Code
 
@@ -37,36 +14,23 @@ Please change it if you want to try in your local windows
     ```bash
     cd laravel-sort-yolo
     ```
-3. Update pip and install dependencies for the detect and tracking model:
+3. Build container:
     ```bash
-    pip install --upgrade pip
-    pip install -r requirements.txt
+   docker compose build
     ```
-4. Migrate the database
+4. Run the container:
     ```bash
-    php artisan migrate
+    docker compose up -d
     ```
-5. Make folder inside storage/app/public
+5. Install depedency laravel
     ```bash
-    mkdir uploads
-    mkdir videos
-    mkdir images
+    docker exec -it laravel-app composer install
+    docker exec -it laravel-app php artisan key:generate
     ```
-6. Make those folder shortcut
+6. Application access:
     ```bash
-    php artisan storage:link
+    Laravel: http://localhost:8000
     ```
-6. Run the script:
-    You will need two terminal
-    - Laravel:
-      ```bash
-      php artisan serve
-      ```
-
-    - Bootstrap:
-      ```bash
-      npm run dev
-      ```
 
 ### References
 
