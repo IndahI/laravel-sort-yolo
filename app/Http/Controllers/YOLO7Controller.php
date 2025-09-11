@@ -5,68 +5,65 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Models\Detection;
-use Intervention\Image\ImageManager;
 
 class YOLO7Controller extends Controller
 {
     public function predictYolo7(Request $request)
     {
-        set_time_limit(0);
+        Log::info("Upload request diterima", [
+            "time"     => now()->toDateTimeString(),
+            "has_file" => $request->hasFile('file'),
+            "has_srt"  => $request->hasFile('srt_file'),
+        ]);
 
         $request->validate([
-            'file' => 'required|mimes:jpeg,png,jpg,mp4,avi,mov,mkv|max:102400',
-            'srt_file' => 'nullable|file|mimetypes:text/plain,text/srt',
+            'file'     => 'required|mimes:mp4,avi,mov,jpg,jpeg,png',
+            'srt_file' => 'nullable|mimes:srt,txt'
         ]);
 
-        $file = $request->file('file');
-        $filename = time() . '.' . $file->getClientOriginalExtension();
-        $filePath = $file->storeAs('uploads', $filename, 'public');
+        // === Path target di volume sharing ===
+        $uploadPath = public_path('media/input'); // /var/www/html/public/media/input
+        if (!file_exists($uploadPath)) {
+            mkdir($uploadPath, 0777, true);
+        }
 
-        // Simpan srt jika ada
-        $srtPath = null;
+        // === Reset progress.txt ke 0 ===
+        $progressFile = public_path('media/progress.txt');
+        file_put_contents($progressFile, "0");
+
+        // === Pindahkan file utama ===
+        $mediaFile = $request->file('file');
+        $filename  = time() . '_' . $mediaFile->getClientOriginalName();
+        $mediaFile->move($uploadPath, $filename);
+
+        // === Kalau ada file SRT, pindahkan juga ===
+        $srtFilename = null;
         if ($request->hasFile('srt_file')) {
-            $srt = $request->file('srt_file');
-            $srtPath = $srt->storeAs('uploads', time() . '.srt', 'public');
+            $srtFilename = time() . '.srt';
+            $request->file('srt_file')->move($uploadPath, $srtFilename);
         }
 
-        // Kosongkan progress
-        file_put_contents(storage_path('app/progress.txt'), '0');
+        // === Tentukan apakah file video ===
+        $isVideo = in_array(
+            strtolower($mediaFile->getClientOriginalExtension()),
+            ['mp4', 'avi', 'mov']
+        );
 
-        // Buat file result.json kosong
-        $resultPath = storage_path('app/result.json');
-        file_put_contents($resultPath, json_encode([]));
-
-        // Simpan data awal ke database
+        // === Simpan data awal ke database ===
         $detection = Detection::create([
-            'filename_original' => $filename,
-            'detected_file_path' => '', // masih kosong, diisi nanti di getResultView
-            'is_video' => in_array($file->getClientOriginalExtension(), ['mp4', 'avi', 'mov', 'mkv']),
-            'predictions' => null, // akan diisi nanti
-            'track_points' => null,
-            'srtPath' => $srtPath,
-            'status' => 'processing' // jika ada kolom status
+            'filename_original'   => $filename,
+            'detected_file_path'  => null,  // nanti diisi watcher setelah YOLO selesai
+            'is_video'            => $isVideo,
+            'predictions'         => null,
+            'track_points'        => null,
+            'srt_file_path'       => $srtFilename ? "media/input/$srtFilename" : null,
+            'status'              => 'pending', // watcher akan ambil job ini
         ]);
 
-        // Jalankan script Python
-        $python = "C:\\Users\\Indah\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
-        $script = base_path('scripts/yolov11_predict.py');
-        $fullInputPath = storage_path('app/public/' . $filePath);
-        $fullSrtPath = $srtPath ? storage_path('app/public/' . $srtPath) : '';
-        $detectionId = $detection->id;
-
-        if ($fullSrtPath) {
-            $cmd = "start /B \"\" \"$python\" \"$script\" \"$fullInputPath\" \"$fullSrtPath\" \"$detectionId\" >nul 2>&1";
-        } else {
-            $cmd = "start /B \"\" \"$python\" \"$script\" \"$fullInputPath\" \"$detectionId\" >nul 2>&1";
-        }
-
-        Log::info("Menjalankan Python script:", [
-            'cmd' => $cmd,
-            'timestamp' => now()->toDateTimeString()
+        return response()->json([
+            'success'     => true,
+            'detectionId' => $detection->id,
+            'message'     => 'Upload berhasil, menunggu pemrosesan oleh worker Python.'
         ]);
-
-        pclose(popen($cmd, "r"));
-
-        return response()->json(['status' => 'processing']);
     }
 }
